@@ -1,0 +1,25 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+httpx>=0.27.0
+python-dotenv>=1.0.1
+pydantic>=2.7.1
+pydantic-settings>=2.2.1
+
+# Broker SDKs
+alpaca-py>=0.20.0
+robin_stocks>=3.0.4
+pyotp>=2.9.0
+pyetrade>=2.1.0
+
+# Technical Analysis
+pandas>=2.2.2
+numpy>=1.26.0
+yfinance>=0.2.54
+
+# Web scraping for Capitol Trades
+beautifulsoup4>=4.12.3
+lxml>=5.2.2
+
+# Caching & scheduling
+cachetools>=5.3.3
+apscheduler>=3.10.4

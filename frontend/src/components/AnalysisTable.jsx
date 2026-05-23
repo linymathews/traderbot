@@ -24,7 +24,9 @@ function pct(n) {
   return <span className={cls}>{v >= 0 ? '+' : ''}{v.toFixed(2)}%</span>
 }
 
-export default function AnalysisTable({ analyses, loading, onSelect, selectedSymbol, onRefresh, onViewCompany }) {
+export default function AnalysisTable({ analyses, rawPositions = [], pendingOrders = [], loading, onSelect, selectedSymbol, onRefresh, onViewCompany, emptyMessage }) {
+  const hasRawFallback = !loading && analyses.length === 0 && rawPositions.length > 0
+
   return (
     <div>
       <div className="table-header">
@@ -57,7 +59,7 @@ export default function AnalysisTable({ analyses, loading, onSelect, selectedSym
               </tr>
             ) : analyses.length === 0 ? (
               <tr className="loading-row">
-                <td colSpan={11}>No positions found. Check broker connection in .env</td>
+                <td colSpan={11}>{emptyMessage || 'No positions found for this account.'}</td>
               </tr>
             ) : (
               analyses.map(a => (
@@ -115,6 +117,68 @@ export default function AnalysisTable({ analyses, loading, onSelect, selectedSym
           </tbody>
         </table>
       </div>
+
+      {hasRawFallback && (
+        <div className="table-wrap" style={{ marginTop: 12 }}>
+          <table>
+            <thead>
+              <tr>
+                <th colSpan={4}>Raw Broker Positions (analysis unavailable)</th>
+              </tr>
+              <tr>
+                <th>Symbol</th>
+                <th>Qty</th>
+                <th>Mkt Value</th>
+                <th>Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rawPositions.map((p, idx) => (
+                <tr key={`${p.symbol || 'pos'}-${idx}`}>
+                  <td>{p.symbol || '—'}</td>
+                  <td>{p.quantity ?? '—'}</td>
+                  <td>{fmt(p.market_value)}</td>
+                  <td>{p.asset_type || 'stock'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && pendingOrders.length > 0 && (
+        <div className="table-wrap" style={{ marginTop: 12 }}>
+          <table>
+            <thead>
+              <tr>
+                <th colSpan={7}>Pending Orders</th>
+              </tr>
+              <tr>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Qty</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Limit</th>
+                <th>Submitted</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingOrders.map((o, idx) => (
+                <tr key={`${o.id || 'ord'}-${idx}`}>
+                  <td>{o.symbol || '—'}</td>
+                  <td>{(o.side || '—').toUpperCase()}</td>
+                  <td>{o.qty ?? '—'}</td>
+                  <td>{o.type || '—'}</td>
+                  <td>{o.status || '—'}</td>
+                  <td>{o.limit_price ? fmt(o.limit_price) : '—'}</td>
+                  <td>{o.submitted_at ? new Date(o.submitted_at).toLocaleString() : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

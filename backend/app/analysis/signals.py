@@ -6,15 +6,16 @@ Indicators used:
   - MACD(12,26,9)    — trend / momentum
   - Bollinger Bands  — volatility / mean reversion
   - SMA 50 / SMA 200 — trend (golden/death cross)
+    - Support/Resistance levels — proximity to local range boundaries
   - Volume spike     — confirmation
 
 Scoring:
   Each indicator contributes +1 (bullish), -1 (bearish), or 0 (neutral).
-  Final recommendation:
-    >= +3  → STRONG BUY
-    >= +1  → BUY
-    <= -3  → STRONG SELL
-    <= -1  → SELL
+    Final recommendation:
+        >= +4  → STRONG BUY
+        >= +2  → BUY
+        <= -4  → STRONG SELL
+        <= -2  → SELL
     else   → HOLD
 """
 
@@ -155,6 +156,47 @@ def compute_signals(symbol: str, price_history: list[dict]) -> dict:
             score -= 1
             indicators["sma_cross"] = "DEATH CROSS SMA50<SMA200 (bearish)"
 
+    # --- Support / Resistance levels ---
+    lookback_near = min(len(close), 20)
+    lookback_major = min(len(close), 50)
+    near_window = close.tail(lookback_near)
+    major_window = close.tail(lookback_major)
+
+    support_near = float(near_window.min()) if not near_window.empty else current_price
+    resistance_near = float(near_window.max()) if not near_window.empty else current_price
+    support_major = float(major_window.min()) if not major_window.empty else support_near
+    resistance_major = float(major_window.max()) if not major_window.empty else resistance_near
+
+    indicators["support_near"] = round(support_near, 2)
+    indicators["resistance_near"] = round(resistance_near, 2)
+    indicators["support_major"] = round(support_major, 2)
+    indicators["resistance_major"] = round(resistance_major, 2)
+
+    if current_price <= support_near * 1.02:
+        score += 1
+        indicators["sr_signal"] = "NEAR SUPPORT (bullish)"
+    elif current_price >= resistance_near * 0.98:
+        score -= 1
+        indicators["sr_signal"] = "NEAR RESISTANCE (bearish)"
+    else:
+        indicators["sr_signal"] = "RANGE MIDPOINT (neutral)"
+
+    stop_loss = support_near * 0.985
+    tp1 = resistance_near
+    tp2 = resistance_major
+    indicators["stop_loss_suggestion"] = round(stop_loss, 2)
+    indicators["take_profit_1"] = round(tp1, 2)
+    indicators["take_profit_2"] = round(tp2, 2)
+
+    if current_price > 0:
+        indicators["distance_to_support_pct"] = round((current_price - support_near) / current_price * 100, 2)
+        indicators["distance_to_resistance_pct"] = round((resistance_near - current_price) / current_price * 100, 2)
+
+    risk = current_price - stop_loss
+    reward = tp1 - current_price
+    if risk > 0:
+        indicators["risk_reward_tp1"] = round(reward / risk, 2)
+
     # --- Volume spike ---
     avg_vol = float(volume.rolling(20).mean().iloc[-1]) if len(volume) >= 20 else 0
     last_vol = float(volume.iloc[-1])
@@ -167,13 +209,13 @@ def compute_signals(symbol: str, price_history: list[dict]) -> dict:
         indicators["volume_signal"] = "NORMAL volume"
 
     # --- Final recommendation ---
-    if score >= 3:
+    if score >= 4:
         recommendation = "STRONG BUY"
-    elif score >= 1:
+    elif score >= 2:
         recommendation = "BUY"
-    elif score <= -3:
+    elif score <= -4:
         recommendation = "STRONG SELL"
-    elif score <= -1:
+    elif score <= -2:
         recommendation = "SELL"
     else:
         recommendation = "HOLD"

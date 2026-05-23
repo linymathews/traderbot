@@ -104,6 +104,7 @@ class ETradeBroker(BaseBroker):
                             market_value=market_val,
                             unrealized_pl=upl,
                             unrealized_pl_pct=round(upl_pct, 2),
+                            asset_type="stock",
                         )
                     )
         except (KeyError, TypeError):

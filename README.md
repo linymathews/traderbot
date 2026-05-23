@@ -25,6 +25,8 @@ A web application that connects to your brokerage account, monitors your portfol
 ```bash
 cp backend/.env.example backend/.env
 # Edit backend/.env and set your broker credentials
+cp frontend/.env.example frontend/.env
+# Edit frontend/.env and set VITE_GOOGLE_CLIENT_ID
 ```
 
 ### 2. Run
@@ -36,13 +38,55 @@ cp backend/.env.example backend/.env
 - Frontend → http://localhost:5173  
 - API docs → http://localhost:8000/docs
 
+### Google Login
+
+TraderBot now requires login for all `/api/*` endpoints (except `/api/auth/*`).
+
+1. Create an OAuth Client ID in Google Cloud Console (Web application type).
+2. Add allowed JavaScript origins:
+	- `http://localhost:5173` (dev)
+	- `http://localhost:8000` (single-container deploy)
+3. Set values:
+	- `backend/.env` → `GOOGLE_CLIENT_ID=...`
+	- `frontend/.env` → `VITE_GOOGLE_CLIENT_ID=...`
+
 ---
 
-## Docker (production)
+## Docker (single container)
 
 ```bash
 cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
 docker compose up --build
+```
+
+- App (frontend + API) → http://localhost:8000
+- API docs → http://localhost:8000/docs
+- Health check → http://localhost:8000/healthz
+
+### Persistent Data (MongoDB)
+
+The consolidated deployment runs as a single app stack in `docker compose`:
+
+- `app`: frontend + FastAPI backend
+- `mongo`: internal database service for persisted backend data (for example auth sessions)
+
+MongoDB data is stored in the named Docker volume `mongo_data`, so data survives container restarts/rebuilds.
+
+User profile settings (broker credentials, toggles, weights, refresh settings) are now stored per authenticated user in MongoDB.
+
+Useful commands:
+
+```bash
+docker compose up -d --build
+docker compose down
+docker volume ls | grep mongo_data
+```
+
+If you remove the volume (for a clean reset), persisted data is deleted:
+
+```bash
+docker compose down -v
 ```
 
 ---

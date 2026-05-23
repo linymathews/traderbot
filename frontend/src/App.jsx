@@ -4,19 +4,23 @@ import AccountSummary from './components/AccountSummary'
 import AnalysisTable from './components/AnalysisTable'
 import SymbolDetail from './components/SymbolDetail'
 import CongressFeed from './components/CongressFeed'
-import Backtest from './components/Backtest'
 import Profile from './components/Profile'
 import CompanyProfile from './components/CompanyProfile'
+import JobsManager from './components/JobsManager'
 import StatusBar from './components/StatusBar'
+import LoginGate from './components/LoginGate'
 import './App.css'
 
 const API = '/api'
 
 export default function App() {
-  const [tab, setTab] = useState('portfolio')  // portfolio | congress | backtest | search | company
+  const [tab, setTab] = useState('portfolio')  // portfolio | congress | search | company
   const [companySymbol, setCompanySymbol] = useState('')
   const [account, setAccount] = useState(null)
   const [analyses, setAnalyses] = useState([])
+  const [rawPositions, setRawPositions] = useState([])
+  const [pendingOrders, setPendingOrders] = useState([])
+  const [portfolioMessage, setPortfolioMessage] = useState('')
   const [congressTrades, setCongressTrades] = useState([])
   const [selectedSymbol, setSelectedSymbol] = useState(null)
   const [brokerStatus, setBrokerStatus] = useState(null)
@@ -27,8 +31,34 @@ export default function App() {
   const [searchSymbol, setSearchSymbol] = useState('')
   const [searchResult, setSearchResult] = useState(null)
   const [searchLoading, setSearchLoading] = useState(false)
-  const [backtestSymbol, setBacktestSymbol] = useState('')
+  const [authLoading, setAuthLoading] = useState(true)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authError, setAuthError] = useState(null)
+  const [user, setUser] = useState(null)
+  const [authConfig, setAuthConfig] = useState(null)
+  const [showBrokerNotice, setShowBrokerNotice] = useState(true)
 
+  const checkSession = useCallback(async () => {
+    setAuthLoading(true)
+    try {
+      const res = await fetch(`${API}/auth/session`)
+      const data = await res.json()
+      if (res.ok && data.authenticated) {
+        setUser(data.user || null)
+      } else {
+        setUser(null)
+      }
+      setAuthConfig({
+        googleEnabled: data.google_enabled ?? false,
+        localLoginEnabled: data.local_login_enabled ?? true,
+      })
+    } catch (e) {
+      setUser(null)
+      setAuthError('Unable to verify session. Please refresh and try again.')
+    } finally {
+      setAuthLoading(false)
+    }
+  }, [])
   const fetchStatus = useCallback(async () => {
     try {
       const [statusRes, settingsRes] = await Promise.all([
@@ -54,9 +84,31 @@ export default function App() {
       const data = await res.json()
       setAccount(data.account_summary)
       setAnalyses(data.analyses || [])
+      setPendingOrders(data.pending_orders || [])
+      setPortfolioMessage(data.message || '')
+
+      // Fallback: show raw positions if analysis is empty but account has holdings.
+      if ((data.analyses || []).length === 0 && (data.account_summary?.positions_count || 0) > 0) {
+        try {
+          const accountRes = await fetch(`${API}/account`)
+          if (accountRes.ok) {
+            const accountData = await accountRes.json()
+            setRawPositions(accountData.positions || [])
+          } else {
+            setRawPositions([])
+          }
+        } catch {
+          setRawPositions([])
+        }
+      } else {
+        setRawPositions([])
+      }
+
       setLastRefresh(new Date())
     } catch (e) {
       setError(e.message)
+      setRawPositions([])
+      setPendingOrders([])
     } finally {
       setLoading(false)
     }
@@ -97,55 +149,151 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
+    checkSession()
+  }, [checkSession])
+
+  useEffect(() => {
+    if (!user) return
     fetchStatus()
-    fetchPortfolio()
     fetchCongressTrades()
-  }, [fetchStatus, fetchPortfolio, fetchCongressTrades])
+  }, [user, fetchStatus, fetchCongressTrades])
+
+  useEffect(() => {
+    if (!user) return
+    if (!brokerStatus?.connected) return
+    fetchPortfolio()
+  }, [user, brokerStatus?.connected, fetchPortfolio])
 
   // Auto-refresh
   useEffect(() => {
+    if (!user) return
     if (!appSettings?.refresh_interval_minutes) return
     const interval = setInterval(() => {
-      fetchPortfolio()
       fetchCongressTrades()
+      if (brokerStatus?.connected) {
+        fetchPortfolio()
+      }
     }, appSettings.refresh_interval_minutes * 60 * 1000)
     return () => clearInterval(interval)
-  }, [appSettings, fetchPortfolio, fetchCongressTrades])
+  }, [user, appSettings, brokerStatus?.connected, fetchPortfolio, fetchCongressTrades])
+
+  const handleGoogleCredential = useCallback(async credential => {
+    if (!credential) return
+    setAuthBusy(true)
+    setAuthError(null)
+    try {
+      const res = await fetch(`${API}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data?.detail || 'Login failed')
+      }
+      setUser(data.user || null)
+    } catch (e) {
+      setAuthError(e.message || 'Login failed')
+      setUser(null)
+    } finally {
+      setAuthBusy(false)
+    }
+  }, [])
+
+  const handleLocalLogin = useCallback(async ({ name, email }) => {
+    setAuthBusy(true)
+    setAuthError(null)
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data?.detail || 'Login failed')
+      }
+      setUser(data.user || null)
+    } catch (e) {
+      setAuthError(e.message || 'Login failed')
+      setUser(null)
+    } finally {
+      setAuthBusy(false)
+    }
+  }, [])
+
+  const handleLogout = useCallback(async () => {
+    setAuthBusy(true)
+    try {
+      await fetch(`${API}/auth/logout`, { method: 'POST' })
+    } catch (e) {
+      console.error('Logout failed', e)
+    } finally {
+      setUser(null)
+      setAuthBusy(false)
+    }
+  }, [])
+
+  if (authLoading) {
+    return (
+      <div className="login-shell">
+        <div className="login-card"><p>Checking session...</p></div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <LoginGate
+        onCredential={handleGoogleCredential}
+        onLocalLogin={handleLocalLogin}
+        disabled={authBusy}
+        error={authError}
+        googleEnabled={authConfig?.googleEnabled ?? false}
+        localLoginEnabled={authConfig?.localLoginEnabled ?? true}
+      />
+    )
+  }
 
   const selectedAnalysis = selectedSymbol
     ? (analyses.find(a => a.symbol === selectedSymbol) || searchResult)
     : null
+
+  // Broker is configured if it's connected
+  const brokerConfigured = brokerStatus?.connected === true
+
+  // If on portfolio tab but broker not configured, switch to congress tab
+  const displayTab = (tab === 'portfolio' && !brokerConfigured) ? 'congress' : tab
 
   return (
     <div className="app">
       <Header
         brokerStatus={brokerStatus}
         appSettings={appSettings}
-        searchSymbol={searchSymbol}
-        setSearchSymbol={setSearchSymbol}
-        onSearch={handleSearch}
-        searchLoading={searchLoading}
+        user={user}
+        onOpenProfile={() => setTab('profile')}
+        onLogout={handleLogout}
+        authBusy={authBusy}
       />
 
       <nav className="tabs">
-        <button className={tab === 'portfolio' ? 'active' : ''} onClick={() => setTab('portfolio')}>
-          Portfolio
-        </button>
-        <button className={tab === 'congress' ? 'active' : ''} onClick={() => setTab('congress')}>
+        {brokerConfigured && (
+          <button className={displayTab === 'portfolio' ? 'active' : ''} onClick={() => setTab('portfolio')}>
+            Portfolio
+          </button>
+        )}
+        <button className={displayTab === 'congress' ? 'active' : ''} onClick={() => setTab('congress')}>
           Congress Trades
           {congressTrades.length > 0 && <span className="badge">{congressTrades.length}</span>}
         </button>
-        <button className={tab === 'backtest' ? 'active' : ''} onClick={() => setTab('backtest')}>
-          Back-Test
-        </button>
-        <button className={tab === 'company' ? 'active' : ''} onClick={() => setTab('company')}>
+        <button className={displayTab === 'company' ? 'active' : ''} onClick={() => setTab('company')}>
           🏢 Company
         </button>
-        <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')} style={{marginLeft:'auto'}}>
-          ⚙ Settings
+        <button className={displayTab === 'jobs' ? 'active' : ''} onClick={() => setTab('jobs')}>
+          ⚙️ Jobs
         </button>
         {searchResult && (
-          <button className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>
+          <button className={displayTab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>
             {selectedSymbol}
           </button>
         )}
@@ -159,20 +307,30 @@ export default function App() {
           </div>
         )}
 
-        {tab === 'portfolio' && (
+        {!brokerConfigured && displayTab === 'company' && showBrokerNotice && (
+          <div style={{ padding: '1rem', backgroundColor: '#fff3cd', border: '1px solid #ffc107', borderRadius: '4px', marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+            <span><strong>⚠️ Broker Not Configured:</strong> Broker setup is optional. You can still use Congress Trades and Company research.</span>
+            <button type="button" onClick={() => setShowBrokerNotice(false)}>✕</button>
+          </div>
+        )}
+
+        {displayTab === 'portfolio' && (
           <>
             {account && <AccountSummary account={account} />}
-            {selectedAnalysis && tab === 'portfolio' && selectedSymbol && (
+            {selectedAnalysis && displayTab === 'portfolio' && selectedSymbol && (
               <SymbolDetail
                 data={selectedAnalysis}
                 onClose={() => setSelectedSymbol(null)}
-                onBacktest={sym => { setBacktestSymbol(sym); setTab('backtest'); setSelectedSymbol(null); }}
+                onBacktest={sym => { setCompanySymbol(sym); setTab('company'); setSelectedSymbol(null); }}
                 onViewCompany={sym => { setCompanySymbol(sym); setTab('company'); setSelectedSymbol(null); }}
               />
             )}
             <AnalysisTable
               analyses={analyses}
+              rawPositions={rawPositions}
+              pendingOrders={pendingOrders}
               loading={loading}
+              emptyMessage={portfolioMessage}
               onSelect={sym => { setSelectedSymbol(sym); }}
               selectedSymbol={selectedSymbol}
               onRefresh={fetchPortfolio}
@@ -181,7 +339,7 @@ export default function App() {
           </>
         )}
 
-        {tab === 'congress' && (
+        {displayTab === 'congress' && (
           <CongressFeed
             trades={congressTrades}
             onSelectSymbol={sym => { setSearchSymbol(sym); handleSearch() }}
@@ -189,18 +347,20 @@ export default function App() {
           />
         )}
 
-        {tab === 'backtest' && <Backtest initialSymbol={backtestSymbol} />}
-
-        {tab === 'company' && (
+        {displayTab === 'company' && (
           <CompanyProfile
             symbol={companySymbol}
             onNavigate={sym => setCompanySymbol(sym)}
+            riskTolerance={appSettings?.risk_tolerance ?? 5}
+            brokerConfigured={brokerConfigured}
           />
         )}
 
-        {tab === 'profile' && <Profile />}
+        {displayTab === 'jobs' && <JobsManager />}
 
-        {tab === 'search' && searchResult && (
+        {displayTab === 'profile' && <Profile />}
+
+        {displayTab === 'search' && searchResult && (
           <SymbolDetail
             data={searchResult}
             onClose={() => { setSearchResult(null); setTab('portfolio') }}

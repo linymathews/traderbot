@@ -4,6 +4,8 @@ httpx>=0.27.0
 python-dotenv>=1.0.1
 pydantic>=2.7.1
 pydantic-settings>=2.2.1
+google-auth>=2.37.0
+pymongo>=4.8.0
 
 # Broker SDKs
 alpaca-py>=0.20.0

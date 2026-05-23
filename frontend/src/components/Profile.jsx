@@ -201,7 +201,9 @@ export default function Profile() {
     alt_weight_fred: 0.45,
     alt_weight_tiingo: 0.25,
     alt_weight_lunarcrush: 0.5,
-    refresh_interval_minutes: 15, signal_lookback_days: 90,
+    refresh_interval_minutes: 15, 
+    signal_lookback_days: 90,
+    risk_tolerance: 5,
     _masked: {},
   })
   const [loading, setLoading] = useState(true)
@@ -254,6 +256,7 @@ export default function Profile() {
         alt_weight_lunarcrush: data.alt_weight_lunarcrush,
         refresh_interval_minutes: data.refresh_interval_minutes,
         signal_lookback_days: data.signal_lookback_days,
+        risk_tolerance: data.risk_tolerance || 5,
         _masked: data,
       }))
     } catch (e) {
@@ -311,6 +314,7 @@ export default function Profile() {
         alt_weight_fred: Number(form.alt_weight_fred),
         alt_weight_tiingo: Number(form.alt_weight_tiingo),
         alt_weight_lunarcrush: Number(form.alt_weight_lunarcrush),
+        risk_tolerance: Number(form.risk_tolerance),
       }
       // Only send secret fields if they were actually typed (non-empty)
       if (form.alpaca_api_key.trim())        payload.alpaca_api_key = form.alpaca_api_key.trim()
@@ -345,10 +349,25 @@ export default function Profile() {
     setTesting(broker)
     setTestResult(null)
     try {
+      const payload = { broker }
+      if (broker === 'alpaca') {
+        if (form.alpaca_api_key.trim()) payload.alpaca_api_key = form.alpaca_api_key.trim()
+        if (form.alpaca_secret_key.trim()) payload.alpaca_secret_key = form.alpaca_secret_key.trim()
+        payload.alpaca_paper = !!form.alpaca_paper
+      } else if (broker === 'robinhood') {
+        if (form.robinhood_username.trim()) payload.robinhood_username = form.robinhood_username.trim()
+        if (form.robinhood_password.trim()) payload.robinhood_password = form.robinhood_password.trim()
+        if (form.robinhood_totp_secret.trim()) payload.robinhood_totp_secret = form.robinhood_totp_secret.trim()
+      } else if (broker === 'etrade') {
+        if (form.etrade_consumer_key.trim()) payload.etrade_consumer_key = form.etrade_consumer_key.trim()
+        if (form.etrade_consumer_secret.trim()) payload.etrade_consumer_secret = form.etrade_consumer_secret.trim()
+        payload.etrade_sandbox = !!form.etrade_sandbox
+      }
+
       const res = await fetch(`${API}/test-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ broker }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       setTestResult(data)
@@ -370,7 +389,7 @@ export default function Profile() {
           <h2>Account Profile &amp; Settings</h2>
           <p className="pf-subtitle">
             Configure broker credentials and application preferences.
-            Secrets are stored in your local <code>.env</code> file and never transmitted externally.
+            Settings are saved securely per-user in the database and never transmitted externally.
           </p>
         </div>
         <div className="pf-actions">
@@ -511,8 +530,6 @@ export default function Profile() {
           </div>
         </div>
       </section>
-
-      {/* ── App preferences ── */}
       <section className="pf-section">
         <h3 className="pf-section-title">Application Preferences</h3>
         <div className="pf-grid">
@@ -546,6 +563,25 @@ export default function Profile() {
                 onChange={handleChange}
               />
               <div className="pf-hint">How many days of price history to use for signals (30–365)</div>
+            </div>
+          </div>
+          <div className="pf-card">
+            <div className="pf-card-title">⚡ Risk Tolerance</div>
+            <div className="pf-field">
+              <label className="pf-label">Signal Aggressiveness (1–10)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  name="risk_tolerance"
+                  value={form.risk_tolerance}
+                  onChange={handleChange}
+                  style={{ flex: 1 }}
+                />
+                <span style={{ minWidth: '30px', textAlign: 'center', fontWeight: 600 }}>{form.risk_tolerance}</span>
+              </div>
+              <div className="pf-hint">1=Conservative (strict signals only), 10=Aggressive (more frequent signals)</div>
             </div>
           </div>
         </div>

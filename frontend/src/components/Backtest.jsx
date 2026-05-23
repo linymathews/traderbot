@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Line } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -22,10 +22,15 @@ function KV({ label, value, valueClass }) {
   )
 }
 
-function RecChip({ rec }) {
+function RecChip({ rec, onClick }) {
   if (!rec) return null
   return (
-    <span className={'rec ' + rec.replace(' ', '.')} style={{ fontSize: 13, padding: '4px 14px' }}>
+    <span
+      className={'rec ' + rec.replace(' ', '.')}
+      style={{ fontSize: 13, padding: '4px 14px', cursor: onClick ? 'pointer' : 'default' }}
+      onClick={onClick}
+      title={onClick ? 'Click to explain this signal' : undefined}
+    >
       {rec}
     </span>
   )
@@ -35,22 +40,18 @@ const TODAY = new Date().toISOString().split('T')[0]
 const ONE_YEAR_AGO = new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0]
 
 export default function Backtest({ initialSymbol = '' }) {
-  const [symbol, setSymbol] = useState(initialSymbol || '')
   const [simDate, setSimDate] = useState(ONE_YEAR_AGO)
   const [endDate, setEndDate] = useState(TODAY)
   const [capital, setCapital] = useState('10000')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [showSignalDialog, setShowSignalDialog] = useState(false)
 
-  // When navigated from portfolio with a pre-filled symbol
-  useEffect(() => {
-    if (initialSymbol) setSymbol(initialSymbol)
-  }, [initialSymbol])
+  const symbol = initialSymbol.trim().toUpperCase()
 
   const run = async () => {
-    const sym = symbol.trim().toUpperCase()
-    if (!sym || !simDate) return
+    if (!symbol || !simDate) return
     setLoading(true)
     setError(null)
     setResult(null)
@@ -60,7 +61,7 @@ export default function Backtest({ initialSymbol = '' }) {
         end_date: endDate,
         capital: capital || '10000',
       })
-      const res = await fetch(`/api/backtest/${sym}?${params}`)
+      const res = await fetch(`/api/backtest/${symbol}?${params}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
       setResult(data)
@@ -158,22 +159,12 @@ export default function Backtest({ initialSymbol = '' }) {
       <div className="backtest-form">
         <h2>Back-Test Simulation</h2>
         <p className="backtest-desc">
-          Choose a symbol and a past date. TraderBot will compute what signal it would have generated
-          on that date (using only data available then) and show what the P&amp;L would have been
-          if you followed.
+          This simulation uses the currently loaded company. Choose a past date and TraderBot will
+          compute what signal it would have generated on that date using only information available
+          then, then show the resulting P&amp;L.
         </p>
 
         <div className="backtest-inputs">
-          <label>
-            Symbol
-            <input
-              type="text"
-              placeholder="e.g. AAPL"
-              value={symbol}
-              onChange={e => setSymbol(e.target.value.toUpperCase())}
-              onKeyDown={handleKey}
-            />
-          </label>
           <label>
             Signal Date
             <input type="date" value={simDate} max={endDate} onChange={e => setSimDate(e.target.value)} />
@@ -211,7 +202,10 @@ export default function Backtest({ initialSymbol = '' }) {
           {/* Summary header */}
           <div className="bt-summary">
             <div className="bt-symbol">{result.symbol}</div>
-            <RecChip rec={result.final_recommendation} />
+            <RecChip
+              rec={result.final_recommendation}
+              onClick={result.signal_factors ? () => setShowSignalDialog(true) : undefined}
+            />
             <div className={`bt-gl ${glColor}`}>
               {result.action === 'HOLD'
                 ? 'No position (HOLD)'
@@ -302,6 +296,133 @@ export default function Backtest({ initialSymbol = '' }) {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Signal explanation dialog */}
+      {showSignalDialog && result?.signal_factors && (
+        <div className="sig-dialog-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowSignalDialog(false) }}>
+          <div className="sig-dialog">
+            <div className="sig-dialog-header">
+              <div>
+                <div className="sig-dialog-title">💡 Signal Explanation</div>
+                <div className="sig-dialog-subtitle">{result.symbol} — Signal as of {result.sim_date}</div>
+              </div>
+              <button className="sig-dialog-close" onClick={() => setShowSignalDialog(false)}>✕</button>
+            </div>
+
+            {/* Score band */}
+            <div className="sig-score-band">
+              <span className={`sig-overall-signal ${result.final_recommendation?.includes('BUY') ? 'pos' : result.final_recommendation?.includes('SELL') ? 'neg' : 'neu'}`}>
+                {result.final_recommendation}
+              </span>
+              <div>
+                <div className="sig-score-label">Combined Score</div>
+                <div className={`sig-score-num ${result.combined_score > 0 ? 'pos' : result.combined_score < 0 ? 'neg' : ''}`}>
+                  {result.combined_score >= 0 ? '+' : ''}{result.combined_score}
+                </div>
+              </div>
+              {result.risk_tolerance_used != null && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <div className="sig-score-label">Risk Tolerance</div>
+                  <div className="sig-score-num" style={{ fontSize: 18 }}>{result.risk_tolerance_used}/10</div>
+                  <div style={{ fontSize: 11, opacity: 0.65 }}>
+                    {result.risk_tolerance_used <= 3 ? 'Conservative' : result.risk_tolerance_used <= 6 ? 'Moderate' : 'Aggressive'}
+                  </div>
+                </div>
+              )}
+              <div className="sig-scale-hint">
+                {[['≥ +5','STRONG BUY','pos'],['+2.5 to +5','BUY','pos'],['−2.5 to +2.5','HOLD','neu'],['−5 to −2.5','SELL','neg'],['≤ −5','STRONG SELL','neg']].map(([r,s,c]) => (
+                  <div key={s} style={{ display:'flex', gap:8, justifyContent:'space-between' }}>
+                    <span>{r}</span><span className={c} style={{fontWeight:700}}>{s}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Factor rows */}
+            <div className="sig-factors-list">
+              {[
+                ['technical',     '📈', 'Technical Indicators', 1.5],
+                ['congressional', '🏛', 'Congressional Trades',  1.0],
+                ['alternative_data','📡','Alternative Data',     2.0],
+                ['fundamentals',  '📊', 'Fundamentals',          2.0],
+                ['momentum',      '🚀', 'Price Momentum',        1.5],
+                ['options_chain', '🎯', 'Options Chain',         2.0],
+              ].map(([key, icon, label, maxC]) => {
+                const f = result.signal_factors[key]
+                if (!f) return null
+                const c = typeof f.contribution === 'number' ? f.contribution : 0
+                const cls = c > 0 ? 'pos' : c < 0 ? 'neg' : ''
+                const pct = Math.min(100, Math.abs(c) / maxC * 50)
+                const details = []
+                if (key === 'technical') {
+                  if (f.score != null) details.push(`Raw score: ${f.score >= 0 ? '+' : ''}${f.score}`)
+                  if (f.recommendation) details.push(`Signal: ${f.recommendation}`)
+                } else if (key === 'congressional') {
+                  if (f.signal) details.push(`Signal: ${f.signal}`)
+                  if (f.score != null) details.push(`Raw score: ${f.score}`)
+                } else if (key === 'alternative_data') {
+                  if (f.score != null) details.push(`Score: ${f.score}`)
+                  if (f.label) details.push(`Status: ${f.label}`)
+                } else if (key === 'fundamentals') {
+                  if (f.pe_ratio) details.push(`P/E: ${f.pe_ratio}`)
+                  if (f.debt_to_equity) details.push(`D/E: ${f.debt_to_equity}`)
+                  if (f.current_ratio) details.push(`CR: ${f.current_ratio}`)
+                } else if (key === 'momentum') {
+                  if (f.day_change_pct != null) details.push(`Day: ${f.day_change_pct >= 0 ? '+' : ''}${Number(f.day_change_pct).toFixed(2)}%`)
+                  if (f['52w_change_pct'] != null) details.push(`52w: ${f['52w_change_pct'] >= 0 ? '+' : ''}${Number(f['52w_change_pct']).toFixed(2)}%`)
+                } else if (key === 'options_chain') {
+                  details.push('Not available for historical dates')
+                }
+                return (
+                  <div key={key} className="sig-factor-row">
+                    <div className="sig-factor-top">
+                      <span style={{fontSize:14}}>{icon}</span>
+                      <span className="sig-factor-name">{label}</span>
+                      <span className="sig-factor-weight">{f.weight || '—'}</span>
+                      <span className={`sig-factor-contrib ${cls}`}>{c >= 0 ? '+' : ''}{c.toFixed(2)}</span>
+                    </div>
+                    <div className="sig-factor-bar-wrap">
+                      {c >= 0
+                        ? <div className="sig-factor-bar pos" style={{width:`${pct}%`}} />
+                        : <div className="sig-factor-bar neg" style={{width:`${pct}%`}} />}
+                    </div>
+                    {details.length > 0 && (
+                      <div className="sig-factor-detail">
+                        {details.map((d, i) => <span key={i}>{d}</span>)}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Technical indicator signals */}
+            {result.signal_factors.technical?.indicators && (
+              <div className="sig-indicator-list">
+                <div className="sig-indicator-list-title">📐 Technical Indicator Values</div>
+                {Object.entries(result.signal_factors.technical.indicators)
+                  .filter(([k]) => k.endsWith('_signal') || k.endsWith('_cross'))
+                  .map(([k, v]) => {
+                    const isBull = /bullish|oversold|above/i.test(String(v))
+                    const isBear = /bearish|overbought|below/i.test(String(v))
+                    return (
+                      <div className="sig-indicator-row" key={k}>
+                        <span className="sig-indicator-k">{k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
+                        <span className={isBull ? 'pos' : isBear ? 'neg' : 'neu'}>{String(v)}</span>
+                      </div>
+                    )
+                  })}
+              </div>
+            )}
+
+            <div className="sig-formula-note" style={{marginTop:14}}>
+              <strong>Note:</strong> This back-test signal uses price data available only up to {result.sim_date}.
+              Fundamentals are current-day approximations. Options chain data is not available for historical dates.
+              The combined score uses the same formula as the live Buy/Sell Signal card.
+            </div>
           </div>
         </div>
       )}

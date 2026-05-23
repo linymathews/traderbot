@@ -12,6 +12,11 @@ class Position:
     market_value: float
     unrealized_pl: float
     unrealized_pl_pct: float
+    asset_type: str = "stock"
+    underlying_symbol: Optional[str] = None
+    option_type: Optional[str] = None
+    strike: Optional[float] = None
+    expiration: Optional[str] = None
 
 
 @dataclass
@@ -40,4 +45,21 @@ class BaseBroker(ABC):
 
     def get_portfolio_symbols(self) -> list[str]:
         account = self.get_account()
-        return [p.symbol for p in account.positions]
+        return [p.symbol for p in account.positions if (p.asset_type or "stock") == "stock"]
+
+    def submit_market_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float,
+        instrument_type: str = "stock",
+        order_type: str = "market",
+        time_in_force: str = "day",
+        limit_price: Optional[float] = None,
+    ) -> dict:
+        raise NotImplementedError("Order placement is not implemented for this broker")
+
+    def get_pending_orders(self) -> list[dict]:
+        """Return open/pending orders if supported by the broker."""
+        return []

@@ -63,6 +63,7 @@ class RobinhoodBroker(BaseBroker):
                     market_value=round(market_val, 2),
                     unrealized_pl=round(upl, 2),
                     unrealized_pl_pct=round(upl_pct, 2),
+                    asset_type="stock",
                 )
             )
 
